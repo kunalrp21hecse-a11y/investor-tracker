@@ -3,250 +3,141 @@ import requests
 from bs4 import BeautifulSoup
 import pandas as pd
 import plotly.express as px
-import time
 
-# -----------------------------------------
-# CONFIG
-# -----------------------------------------
+BASE_URL = "https://www.smallcase.com"
+INVESTOR_INDEX = "https://www.smallcase.com/star-investors/"
 
-HEADERS = {"User-Agent": "Mozilla/5.0"}
+headers = {
+    "User-Agent": "Mozilla/5.0"
+}
 
-FINOLOGY_URL = "https://ticker.finology.in/investor"
-STOCKEDGE_URL = "https://web.stockedge.com/top-investor-portfolios"
-TRENDLYNE_URL = "https://trendlyne.com/portfolio/superstar-shareholders/index/individual/"
+# ---------------------------------------
+# FIND INVESTOR PAGE
+# ---------------------------------------
 
-# -----------------------------------------
-# SCRAPER FUNCTIONS
-# -----------------------------------------
+def find_investor_page(investor_name):
 
-def scrape_finology(investor):
-    results = []
-    
-    try:
-        r = requests.get(FINOLOGY_URL, headers=HEADERS)
-        soup = BeautifulSoup(r.text,"html.parser")
+    r = requests.get(INVESTOR_INDEX, headers=headers)
+    soup = BeautifulSoup(r.text, "html.parser")
 
-        links = soup.find_all("a")
+    links = soup.find_all("a")
 
-        investor_url = None
+    for link in links:
 
-        for link in links:
-            if investor.lower() in link.text.lower():
-                investor_url = "https://ticker.finology.in" + link["href"]
-                break
+        text = link.text.strip().lower()
 
-        if not investor_url:
-            return results
+        if investor_name.lower() in text:
+            return BASE_URL + link.get("href")
 
-        page = requests.get(investor_url, headers=HEADERS)
-        soup = BeautifulSoup(page.text,"html.parser")
-
-        rows = soup.select("table tbody tr")
-
-        for row in rows:
-            cols = row.find_all("td")
-            if len(cols) < 4:
-                continue
-
-            results.append({
-                "Source":"Finology",
-                "Investor":investor,
-                "Company":cols[0].text.strip(),
-                "Holding":cols[1].text.strip(),
-                "Shares":cols[2].text.strip(),
-                "Value":cols[3].text.strip()
-            })
-
-    except:
-        pass
-
-    return results
+    return None
 
 
-def scrape_stockedge(investor):
-    results = []
+# ---------------------------------------
+# SCRAPE PORTFOLIO
+# ---------------------------------------
 
-    try:
-        r = requests.get(STOCKEDGE_URL, headers=HEADERS)
-        soup = BeautifulSoup(r.text,"html.parser")
+def scrape_portfolio(url, investor):
 
-        links = soup.find_all("a")
+    r = requests.get(url, headers=headers)
+    soup = BeautifulSoup(r.text, "html.parser")
 
-        investor_url = None
-
-        for link in links:
-            if investor.lower() in link.text.lower():
-                investor_url = "https://web.stockedge.com" + link["href"]
-                break
-
-        if not investor_url:
-            return results
-
-        page = requests.get(investor_url, headers=HEADERS)
-        soup = BeautifulSoup(page.text,"html.parser")
-
-        rows = soup.select("table tbody tr")
-
-        for row in rows:
-            cols = row.find_all("td")
-
-            if len(cols) < 4:
-                continue
-
-            results.append({
-                "Source":"StockEdge",
-                "Investor":investor,
-                "Company":cols[0].text.strip(),
-                "Holding":cols[1].text.strip(),
-                "Shares":cols[2].text.strip(),
-                "Value":cols[3].text.strip()
-            })
-
-    except:
-        pass
-
-    return results
-
-
-def scrape_trendlyne(investor):
-    results = []
-
-    try:
-        r = requests.get(TRENDLYNE_URL, headers=HEADERS)
-        soup = BeautifulSoup(r.text,"html.parser")
-
-        links = soup.find_all("a")
-
-        investor_url = None
-
-        for link in links:
-            if investor.lower() in link.text.lower():
-                investor_url = "https://trendlyne.com" + link["href"]
-                break
-
-        if not investor_url:
-            return results
-
-        page = requests.get(investor_url, headers=HEADERS)
-        soup = BeautifulSoup(page.text,"html.parser")
-
-        tables = soup.find_all("table")
-
-        for table in tables:
-
-            rows = table.select("tbody tr")
-
-            for row in rows:
-
-                cols = row.find_all("td")
-
-                if len(cols) < 4:
-                    continue
-
-                results.append({
-                    "Source":"Trendlyne",
-                    "Investor":investor,
-                    "Company":cols[0].text.strip(),
-                    "Holding":cols[1].text.strip(),
-                    "Shares":cols[2].text.strip(),
-                    "Value":cols[3].text.strip()
-                })
-
-    except:
-        pass
-
-    return results
-
-
-def scrape_all_sources(investor):
+    rows = soup.select("table tbody tr")
 
     data = []
 
-    data.extend(scrape_finology(investor))
-    time.sleep(1)
+    for row in rows:
 
-    data.extend(scrape_stockedge(investor))
-    time.sleep(1)
+        cols = row.find_all("td")
 
-    data.extend(scrape_trendlyne(investor))
+        if len(cols) < 3:
+            continue
+
+        company = cols[0].text.strip()
+        holding = cols[1].text.strip()
+        allocation = cols[2].text.strip()
+
+        data.append({
+            "Investor": investor,
+            "Company": company,
+            "Holding %": holding,
+            "Allocation %": allocation
+        })
 
     return pd.DataFrame(data)
 
-# -----------------------------------------
+
+# ---------------------------------------
 # STREAMLIT UI
-# -----------------------------------------
+# ---------------------------------------
 
-st.set_page_config(page_title="Investor Portfolio Dashboard", layout="wide")
+st.set_page_config(page_title="Investor Portfolio Tracker", layout="wide")
 
-st.title("📊 Super Investor Portfolio Tracker")
+st.title("📊 Super Investor Portfolio Dashboard")
 
-investor_name = st.text_input("Enter Investor Name", "Radhakishan Damani")
+investor_name = st.text_input(
+    "Enter Investor Name",
+    "Radhakishan Damani"
+)
 
 if st.button("Fetch Portfolio"):
 
-    with st.spinner("Scraping investor portfolio..."):
+    with st.spinner("Searching investor database..."):
 
-        df = scrape_all_sources(investor_name)
+        url = find_investor_page(investor_name)
 
-    if df.empty:
-        st.error("No data found for this investor.")
+    if not url:
+        st.error("Investor not found.")
     else:
 
-        st.success("Portfolio Data Loaded")
+        st.success(f"Investor page found")
 
-        st.dataframe(df, use_container_width=True)
+        df = scrape_portfolio(url, investor_name)
 
-        # -----------------------------------------
-        # CLEAN VALUE COLUMN
-        # -----------------------------------------
+        if df.empty:
+            st.error("No portfolio data detected")
+        else:
 
-        df_chart = df.copy()
+            st.subheader("Portfolio Table")
 
-        df_chart["Value_clean"] = (
-            df_chart["Value"]
-            .str.replace("Cr","")
-            .str.replace(",","")
-            .astype(float, errors="ignore")
-        )
+            st.dataframe(df, use_container_width=True)
 
-        # -----------------------------------------
-        # CHARTS
-        # -----------------------------------------
+            # Clean numbers
+            df["Allocation_clean"] = (
+                df["Allocation %"]
+                .str.replace("%","")
+                .astype(float)
+            )
 
-        col1, col2 = st.columns(2)
-
-        with col1:
+            # PIE CHART
+            st.subheader("Portfolio Allocation")
 
             fig = px.pie(
-                df_chart,
+                df,
                 names="Company",
-                values="Value_clean",
+                values="Allocation_clean",
                 title="Portfolio Allocation"
             )
 
             st.plotly_chart(fig, use_container_width=True)
 
-        with col2:
+            # BAR CHART
+            st.subheader("Holding Distribution")
 
             fig2 = px.bar(
-                df_chart,
+                df,
                 x="Company",
-                y="Value_clean",
-                color="Source",
-                title="Holdings by Value"
+                y="Allocation_clean",
+                title="Allocation by Company"
             )
 
             st.plotly_chart(fig2, use_container_width=True)
 
-        # -----------------------------------------
-        # DOWNLOAD OPTION
-        # -----------------------------------------
+            # DOWNLOAD
+            csv = df.to_csv(index=False).encode()
 
-        csv = df.to_csv(index=False).encode("utf-8")
-
-        st.download_button(
-            "Download Portfolio CSV",
-            csv,
-            "portfolio.csv",
-            "text/csv"
-        )
+            st.download_button(
+                "Download CSV",
+                csv,
+                "portfolio.csv",
+                "text/csv"
+            )
